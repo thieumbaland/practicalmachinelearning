@@ -409,6 +409,7 @@ print(prediction.rf)</code></pre>
 <li>In case of speed problems, it is possible to parallelize your code (see e.g. the <code>snowfall</code> package)</li>
 <li>PCA and scaling operations did not lead to a lower OOB rate. Since the RF manages to predict all test cases correctly, it wouldn’t lead to an improved prediction performance either.</li>
 <li>I also tested the performance of a combined model. Its performance greatly depended on the random seed, which is why I opted not to include it here and proceed with the Random Forest instead.</li>
+<li>The techniques were run with the default settings. While model performance depends on the parameter settings, experimenting with these was computationally prohibitive for me.</li>
 </ul>
 </div>
 
