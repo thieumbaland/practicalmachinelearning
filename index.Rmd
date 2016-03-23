@@ -5,18 +5,98 @@ date: "23 maart 2016"
 output: html_document
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+In this document, I will describe the analysis performed for the project assignment for the Coursera course Practical Machine Learning. First, a brief description of the problem is given. Next, the required steps for loading and pre-processing the data are described. Finally, we can start modeling and present the final outcome.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+# Problem Description
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. **In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.** 
 
+# Data pre-processing
+First, we load the required libraries and set a seed value. This is best practice to ensure reproducibility.
+```{r,cache=F,suppressWarnings=T,message = FALSE, warnings = FALSE}
+library(dplyr)
+library(caret)
+library(e1071)
+library(party)
+library(randomForest)
+
+set.seed(62433)
+```
+Next, we load the data. We label these sets `training.raw` and `testing.raw` to denote these are raw, unprocessed sets. This is also handy if at one point during the coding process we wish to return to the original values instead of overwriting everything.
 ```{r}
-summary(cars)
+raw.training<-read.csv("data/pml-training.csv")
+raw.testing<-read.csv("data/pml-testing.csv")
+# head(tbl_df(raw.training))
+# head(tbl_df(raw.testing))
+```
+It is always a good idea to check for missing values. If there are variables with a lot of missing values, these will not serve to predict the `classe` variable. Obviously, if we remove these variables from the training set, we need to do the same thing for the test set.
+```{r}
+na_training<-sapply(1:ncol(raw.training),function(x){
+  return(sum(is.na(raw.training[,x]))/nrow(raw.training)*100)
+})
+print(na_training)
+training<-raw.training[,-which(na_training>0)]
+testing<-raw.testing[,-which(na_training>0)]
+na_testing<-sapply(1:ncol(testing),function(x){
+  return(sum(is.na(testing[,x]))/nrow(testing)*100)
+})
+print(na_testing)
+training<-training[,-which(na_testing>0)]
+testing<-testing[,-which(na_testing>0)]
+```
+Next, we also calculated the variance for the remaining variables. However, with the variables that were already removed, there was no issue here. Hence, I only share this snippet for the sake of completeness.
+```{r}
+var_training<-sapply(1:ncol(testing),function(x){
+  return(var(testing[,x]))
+})
+```
+Based on visual inspection, we see there are still some remaining variables that can be removed, such as the username, timestamps, windows, etc. Finally, we check the classes of the remaining columns to ensure no numeric columns were accidentally read as factors (this was not a problem).
+```{r}
+training<-training[,-c(1:7)]
+testing<-testing[,-c(1:7)]
+print(lapply(training,class))
+```
+This concludes the data pre-processing step. We end up with 53 variables in the training set and are ready to start the modeling process!
+
+# Modeling
+For the modeling part, I made use of cross-validation (always nice to have an Out-Of-Bag error rate) and compared the performance of Decision Trees, Random Forests and Support Vector Machines. First, I created a data partition to split the trainingset into two sets, with 25% belonging to the hold-out set. This set will later be used to make an OOB error rate estimate.
+```{r}
+mypartition<-createDataPartition(1:nrow(training),p=0.75,list=F)
+training.partition<-training[mypartition[,1],]
+validation.partition<-training[-mypartition[,1],]
+```
+Next, we construct a Random Forest, Support Vector Machine and Decision Tree-based model, make predictions using these models and take a look at the confusion matrix.
+```{r,cache=T}
+model.rf<-randomForest(classe ~ .,data=training.partition)
+model.svm<-svm(classe ~ .,data=training.partition)
+model.tree<-ctree(classe ~ .,data=training.partition)
+
+prediction.rf<-predict(model.rf,validation.partition)
+confusionMatrix(prediction.rf,validation.partition$classe)$table
+prediction.svm<-predict(model.svm,validation.partition)
+confusionMatrix(prediction.svm,validation.partition$classe)$table
+prediction.tree<-predict(model.tree,validation.partition)
+confusionMatrix(prediction.tree,validation.partition$classe)$table
+```
+While the confusion matrix is a very handy instrument, especially if we want to get more information with regard to the type of error (TP, TN, FP and FN), we are generally only interested in a misprediction, namely when the predicted value does not correspond with the true value. We calculated this as follows:
+```{r}
+results_df<-data.frame("RF"=sum(prediction.rf!=validation.partition$classe)/nrow(validation.partition)*100,
+                       "Tree"=sum(prediction.tree!=validation.partition$classe)/nrow(validation.partition)*100,
+                       "SVM"=sum(prediction.svm!=validation.partition$classe)/nrow(validation.partition)*100)
+print(results_df)
+```
+Clearly, the Random Forest technique comes out on top! Let's plot the importance of the variables.
+```{r,echo=T,fig=T}
+varImpPlot(model.rf)
 ```
 
-You can also embed plots, for example:
-
-```{r, echo=FALSE}
-plot(cars)
+Now that we have chosen the Random Forest technique, we need to train it on the entire training set and then make a prediction of the labels of the testing set.
+```{r}
+model.rf<-randomForest(classe ~ .,data=training)
+prediction.rf<-predict(model.rf,testing)
+print(prediction.rf)
 ```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+# Parting comments
+* I made use of the randomForest command (and library) since it provides a speed bump over the `caret` package)
+* In case of speed problems, it is possible to parallelize your code (see e.g. the `snowfall` package)
+* PCA and scaling operations did not lead to a lower OOB rate. Since the RF manages to predict all test cases correctly, it wouldn't lead to an improved prediction performance either.
+* I also tested the performance of a combined model. Its performance greatly depended on the random seed, which is why I opted not to include it here and proceed with the Random Forest instead.
